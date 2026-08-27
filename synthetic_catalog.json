@@ -1,0 +1,131 @@
+[
+  {
+    "slug": "ACME_CREATE_AN_ORDER",
+    "name": "Create an Order",
+    "description": "Creates a new order and returns the created order record.",
+    "toolkit": "acme_orders",
+    "inputParameters": {
+      "properties": {
+        "customer_id": { "type": "string", "description": "The ID of the customer placing the order." },
+        "total_amount": { "type": "number", "description": "The total amount of the order in cents." }
+      },
+      "required": ["customer_id", "total_amount"]
+    },
+    "outputParameters": {
+      "properties": { "data": { "$ref": "#/$defs/Order" } },
+      "$defs": {
+        "Order": {
+          "type": "object",
+          "properties": {
+            "number": { "type": "integer", "description": "Unique order number." },
+            "status": { "type": "string" },
+            "customer_id": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  {
+    "slug": "ACME_LIST_CUSTOMER_ORDERS",
+    "name": "List Customer Orders",
+    "description": "Lists all orders for a given customer.",
+    "toolkit": "acme_orders",
+    "inputParameters": {
+      "properties": {
+        "customer_id": { "type": "string", "description": "The ID of the customer whose orders to list." }
+      },
+      "required": ["customer_id"]
+    },
+    "outputParameters": {
+      "properties": { "data": { "$ref": "#/$defs/OrdersResponse" } },
+      "$defs": {
+        "OrdersResponse": {
+          "type": "object",
+          "properties": {
+            "orders": { "type": "array", "items": { "$ref": "#/$defs/Order" } }
+          }
+        },
+        "Order": {
+          "type": "object",
+          "properties": {
+            "number": { "type": "integer", "description": "Unique order number." },
+            "status": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  {
+    "slug": "ACME_SHIP_AN_ORDER",
+    "name": "Ship an Order",
+    "description": "Marks an order as shipped. Requires the order to have been created first.",
+    "toolkit": "acme_orders",
+    "inputParameters": {
+      "properties": {
+        "order_number": { "type": "integer", "description": "The number of the order to ship." },
+        "carrier": { "type": "string", "description": "Carrier to use." }
+      },
+      "required": ["order_number", "carrier"]
+    },
+    "outputParameters": {
+      "properties": {
+        "data": { "$ref": "#/$defs/Shipment" }
+      },
+      "$defs": {
+        "Shipment": {
+          "type": "object",
+          "properties": {
+            "tracking_id": { "type": "string", "description": "Carrier tracking identifier." },
+            "status": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  {
+    "slug": "ACME_GET_ORDER_STATUS",
+    "name": "Get Order Status",
+    "description": "Returns the current status of an order.",
+    "toolkit": "acme_orders",
+    "inputParameters": {
+      "properties": {
+        "order_number": { "type": "integer", "description": "The order number to look up." }
+      },
+      "required": ["order_number"]
+    },
+    "outputParameters": {
+      "properties": {
+        "data": { "$ref": "#/$defs/OrderStatus" }
+      },
+      "$defs": {
+        "OrderStatus": {
+          "type": "object",
+          "properties": { "status": { "type": "string" }, "updated_at": { "type": "string" } }
+        }
+      }
+    }
+  },
+  {
+    "slug": "ACME_REFUND_AN_ORDER",
+    "name": "Refund an Order",
+    "description": "Issues a refund for an order.",
+    "toolkit": "acme_orders",
+    "inputParameters": {
+      "properties": {
+        "order_number": { "type": "integer", "description": "The order number to refund." }
+      },
+      "required": ["order_number"]
+    },
+    "outputParameters": {
+      "properties": {
+        "data": { "$ref": "#/$defs/Refund" }
+      },
+      "$defs": {
+        "Refund": {
+          "type": "object",
+          "properties": { "amount": { "type": "number" }, "status": { "type": "string" } }
+        }
+      }
+    }
+  }
+]

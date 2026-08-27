@@ -1,183 +1,81 @@
-# Litmus Dep Graph — Solution Documentation
+# build a tool dependency graph generator (60-120 mins)
 
-**Author:** Ameya Gidh
-**Repo:** `dep-graph/` (assessment submission)
-**Deliverable:** `dependency_graph.json` at repo root + offline `visualization.html`
+we care about the quality and structure of the dependency relationships you discover
 
----
+some actions need precursor actions before being able to execute them
 
-## 1. The Problem
+a concrete example
 
-Litmus supplies a **JSON catalog of tools**. Each tool has:
-- a `name` / slug
-- a description
-- an **input schema** (params it *accepts*)
-- an **output schema** (fields it *produces*)
+1. the tool `GITHUB_CREATE_AN_ISSUE_COMMENT` which needs an `issue_number`
+2. which can be got by `GITHUB_LIST_REPOSITORY_ISSUES` as an example, there could be other ways to get an `issue_number` too
 
-The task: generate a **directed dependency graph**:
+a second more dense exmaple
+the merge tool `GITHUB_MERGE_A_PULL_REQUEST` needs a `pull_number`, if you only have a branch name you first list the pull requests with `GITHUB_LIST_PULL_REQUESTS` to find the matching one and then you can merge it
 
-```
-edge:  { from: producer_tool, to: consumer_tool, label: consumer_required_param }
-```
+when we agentically execute actions inside composio, we need to know either what info to get from the user or what other action we should take before we execute the action.
 
-An edge `A -> B [p]` exists when **tool A's output** can satisfy **a required input param `p` of tool B**. Direction is **producer → consumer**.
+you are supposed to build a program that generates this dependency graph — a generator that reads a toolkit's tool catalog and outputs the graph, instead of hand-writing it
 
-For a GitHub-style catalog, the intuition is: *"Which tool must run first so that its output ID (`issue_number`, `milestone_number`, `invitation_id`, ...) can be fed into the next tool?"*
+to keep this limited in scope, we give you [Github](https://docs.composio.dev/toolkits/github) as an example toolkit to build and test against — but your generator should generalize: it reads a toolkit's catalog and produces the graph, so it works for any toolkit, not just this one
 
-**Output:** `dependency_graph.json` at the repo root, with nodes + edges.
+the final submission should be a visualized dependency graph where i can see connection (this is not super important just should exist for me to see if graph with edges and nodes)
 
----
+## deliverable
 
-## 2. Architecture
+commit a **generator** at the repo root — a program that produces a `dependency_graph.json` from a toolkit's catalog. we run it: your generator is called with the path to a toolkit's catalog as a command-line argument (e.g. `node src/generate.ts path/to/catalog.json`), and it writes `dependency_graph.json` at the repo root (declare build/run in `generator.json`). it must read the catalog it's given, not hardcode a fixed graph. the graph shape our checks read:
 
-```
-src/
-  generate.ts        # ENTRY POINT — deterministic schema matcher
-  llm_augment.ts     # OPT-IN (USE_LLM=1) — LLM gap-filler
-  visualize.ts       # renders offline visualization.html
-  selfcheck.ts       # npm run selfcheck — runs generator + reports stats
-  check_synthetic.ts # npm run gen-synthetic — non-GitHub generalization test
-
-github_catalog.json   # real 893-tool catalog
-synthetic_catalog.json # ACME-orders catalog (generalization proof)
-generator.json        # build/run spec used by the grader
-package.json          # scripts + deps (openai, tsx)
+```json
+{
+  "nodes": [{ "id": "GITHUB_CREATE_AN_ISSUE", "service": "issues" }],
+  "edges": [{ "from": "GITHUB_LIST_REPOSITORY_ISSUES", "to": "GITHUB_CREATE_AN_ISSUE_COMMENT", "label": "issue_number" }]
+}
 ```
 
-```
-build: npm install --legacy-peer-deps
-run:   node --import tsx src/generate.ts <catalog_path>
-       # writes dependency_graph.json at repo root
-```
+- each edge is `producer -> consumer`; `label` is the id/field the producer supplies (e.g. `issue_number`, `pull_number`).
+- use Composio's tool slugs for node ids (e.g. `GITHUB_CREATE_AN_ISSUE`), taken from the catalog you were given.
+- also commit a visualization (nodes + edges you can see) and the tool catalog you use.
 
----
+## get started
 
-## 3. The Core Algorithm (`generate.ts`)
+1. the GitHub tool catalog is already provided at `github_catalog.json` — no api key needed.
+2. write your generator in `src/generate.ts` to read a toolkit's catalog and produce the graph. run `npm run selfcheck` to try it on `github_catalog.json` as you iterate.
+3. use node/tsx or python (`bun` isn't guaranteed when we run your generator).
 
-### 3.1 Catalog parsing
-- Read the catalog path from `argv[2]`.
-- Normalize wrappers: accept raw arrays **and** objects like `{"tools":[...]}`.
-- Tolerate malformed entries: a missing `slug` falls back to `name`; missing `name` skips the tool.
+for language models, use the **AI API credentials** (a Base URL and API key) shown on your Litmus assessment page. they work with the OpenAI SDK: point the client's `baseURL`/`base_url` at that url and pass the key, and call an allowed model such as `openai/gpt-4o`. your usage counts against the assessment's token budget.
 
-### 3.2 Schema extraction
-For every tool, walk its JSON Schema and produce:
-- a set of **input params** (with required flag),
-- a set of **output fields**.
+you can implement this with whatever language you want, feel free to use language models and coding tools
 
-References (`$ref` → `$defs`) are resolved recursively, including list-wrapped output schemas (e.g. output is `{type: array, items: {$ref: '#/$defs/foo'}}` → drill into `foo`'s properties) and nested/near-property references.
+## submit
 
-### 3.3 Classifying input params (the key design decision)
-This is where precision-over-recall is decided. Params are split into:
+once you are done, run `litmus submit` from your assessment folder. make sure your generator (see **deliverable** above) is committed.
 
-**A. Ambient params — DROPPED (no edge).**
-Params that are well-known scalar values a caller supplies themselves, *not* produced by another tool:
-- `repo`, `owner`, `org` (repository context — the user already knows these)
-- `issue_number`, `pull_number`, `milestone_number`, `comment_id`, `invitation_id`, `cache_id`, etc. — in *many* catalogs these are actually **produced** by other tools, so they must be handled carefully.
+## activity tracking
 
-**B. Associative-ID params — EDGES.**
-The `label` for real dependency edges. These are IDs one tool creates that another needs as input. Finding them is the actual dependency detection.
+your work is tracked automatically while you work (file changes, git history, and AI-tool prompts) and included when you `litmus submit`. there is nothing to run, just commit often.
 
-### 3.4 The matcher
-For each consumer's **required** input param `p` (from class B), search all producers and connect any tool whose **output fields exposes `p`**:
+NOTE:  Feel free to use LLM, you will be judged by the quality of output, eval...
 
-```
-edge = { from: producer, to: consumer, label: p }
-```
+## implementation & usage
 
-- `MAX_PRODUCERS_PER_INPUT = 25` caps fan-out so the graph stays bounded and readable.
-- Self-loops are filtered out.
-- Only the **required** inputs create edges (optional params are risks, not hard dependencies).
+This repo contains a **catalog-driven** dependency-graph generator. It reads any
+Composio-style toolkit catalog and contains no GitHub-specific code, so it
+generalizes to other toolkits (verified
+by `npm run gen-synthetic` against a synthetic non-GitHub catalog).
 
-### 3.5 Output
-- Nodes: `{id: <tool slug>}`.
-- Edges: `{from, to, label}`.
-- `provenance` ratio tracked; no dangling `$ref`s.
-
-**Real catalog result:** 893 nodes, 3955 edges, fully deterministic.
-
----
-
-## 4. Design Trade-offs (decisions & reasoning)
-
-### 4.1 Deterministic-by-default vs. LLM augmentation
-- **Problem found:** originally the LLM ran on *every* invocation and loaded `.env` directly, so results were non-deterministic (edge counts varied: 3955 / 3982 / 3991 / 3992) — a hard failure for a reproducible graded artifact.
-- **Fix:** LLM now runs **only** when `USE_LLM=1`. The default path is a pure, deterministic schema matcher (verified byte-identical md5 `bae9f1ba...` → 3955 edges) requiring **no API key**.
-- **Trade-off:** the LLM adds ~27 edges the schema heuristic can't see (e.g. `cache_id`, `build_id`, `tag_protection_id`) for 3982 total, but sacrifices reproducibility. Decision: **determinism wins by default**; LLM is an explicit opt-in enhancement.
-
-### 4.2 Ambient `repo`/`owner`/`org` — precision over recall
-- **Experiments:** enabling `repo`/`repository` as edges flooded the graph to **11,924 edges** with `repo` alone contributing 7,936 — low-quality noise, since "repository context" is ambient and self-evident to the caller, not a real dependency.
-- **Decision:** keep `repo`, `owner`, `org` ambient (dropped). The canonical README examples (`issue_number`, `pull_number`) don't require `repo` as an edge.
-
-### 4.3 Producer fan-out cap (`MAX_PRODUCERS_PER_INPUT = 25`)
-- All-or-nothing cap keeps the graph tractable.
-- Tried a more sophisticated "top-K producers by score" refinement; it added **no value** given ambient `repo` is dropped, so the simpler all-or-nothing cap was kept.
-
-### 4.4 Generic, not GitHub-hardcoded
-- No tool names, slugs, or relation maps are hardcoded. Everything is derived from schemas.
-- **Proof:** `synthetic_catalog.json` is a non-GitHub **ACME-orders** domain (CREATE_AN_ORDER → SHIP_AN_ORDER → GET_ORDER_STATUS → REFUND_AN_ORDER). The generator derives `ACME_* -> ACME_* [order_number]` edges purely from schemas — no GitHub knowledge required. Verified via `npm run gen-synthetic`.
-
----
-
-## 5. Verification & Robustness
-
-### 5.1 Edge cases tested (no crashes)
-- Empty list catalog
-- `{"tools":[]}` wrapper
-- Tool with no output schema
-- `data.$ref` with no properties
-- List-wrapped `data.$ref`
-- Dangling `$ref` (missing `$defs`)
-- Numeric property keys
-- Malformed entries (missing slug → fall back to `name`)
-
-### 5.2 Canonical correctness check
-```
-GITHUB_LIST_REPOSITORY_ISSUES  ->  GITHUB_CREATE_AN_ISSUE_COMMENT  [issue_number]
-GITHUB_LIST_PULL_REQUESTS      ->  GITHUB_MERGE_A_PULL_REQUEST     [pull_number]
-milestone_number  ->  only connects to the 4 milestone tools
-```
-✓ All correct. Provenance 1.0, 0 self-loops, 0 dangling refs.
-
-### 5.3 Determinism
-Repeat runs produce identical output md5 (`bae9f1ba72f997fe05858939759c0bcd`, 3955 edges).
-
-### 5.4 Comparison vs the only other on-disk solution
-- A second implementation (Claude's) on disk produces **0 edges** on the real 893-tool catalog (fails the actual deliverable).
-- My solution: **3955 edges** deterministic (3982 with optional LLM).
-
----
-
-## 6. Grading Compatibility
-
-- `generator.json` matches the grader spec exactly:
-  - build: `npm install --legacy-peer-deps`
-  - run: `node --import tsx src/generate.ts`
-- The exact grader command was verified:
-  `node --import tsx src/generate.ts github_catalog.json` → writes `dependency_graph.json` (893 nodes / 3955 edges) deterministically.
-- `npm run selfcheck` and `npm run gen-synthetic` both pass.
-
----
-
-## 7. File / Clean-commit Notes
-
-- `.gitignore` protects: `node_modules/`, `.env*`, `selfcheck_graph.json`, `dependency_graph.json`, `.litmus/`, `.claude/`, `.github/hooks/`.
-- `dependency_graph.json` is **not** committed — it is regenerated at grade time (matches specification).
-- Committed files that matter: `visualization.html`, `README.md`, `src/*.ts`, `synthetic_catalog.json`, `github_catalog.json`, `generator.json`, `package.json`, `LITMUS-AI-NOTICE.md`.
-- This documentation file lives **outside** the repo (temp dir) and is **never committed**.
-
-### Commit history (clean, linear, single branch `master`)
-```
-ddb8245  Make generator deterministic by default; LLM becomes opt-in
-e15c4ab  Add LLM augmentation, visualization, and generalization check
-0425ba7  Implement schema-based dependency graph generator
-d784ccb  Assessment: initial state
-```
-No merges, no reverts, no empty commits. Working tree clean.
-
----
-
-## 8. Status & Next Steps
-
-- All edge cases tested, deterministic output confirmed, generalization proven.
-- Working tree clean; committed `visualization.html` matches the regenerated deterministic graph byte-for-byte.
-- Awaiting user approval before running `litmus submit` from `dep-graph/`.
+- `npm run selfcheck` — generate the graph from `github_catalog.json`, report
+  node/edge counts, provenance and labeled-edge ratios.
+- `npm run gen-synthetic` — prove generalization on a synthetic ACME-orders
+  catalog (asserts the expected producer→consumer edges).
+- Plain invocation (as the grader does): `node --import tsx src/generate.ts <catalog_path> [output_path]`.
+  Output defaults to `dependency_graph.json` at the repo root. Infers node
+  `service` from each tool's `toolkit`.
+- `generator.json` declares build/run per the deliverable spec.
+- **Deterministic by default.** Without flags the generator is a pure
+  schema-based matcher and repeated runs are byte-identical (no API key needed,
+  so grading is reproducible).
+- Optional LLM augmentation (opt-in): set `USE_LLM=1` and provide
+  `OPENAI_API_KEY`/`OPENAI_BASE_URL` in `.env` to have the generator fill
+  identifier-input gaps (false-positive-free) using the OpenAI SDK. Disabled by
+  default so the committed artifacts stay stable.
+- `visualization.html` is a self-contained, offline force-directed view of the
+  graph (nodes + edges with labels).
